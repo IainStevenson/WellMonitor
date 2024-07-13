@@ -1,15 +1,8 @@
 /*
-  LiquidCrystal Library - Hello World
+Derived from the LiquidCrystal Library - Hello World
+ https://docs.arduino.cc/learn/electronics/lcd-displays
 
- Demonstrates the use a 16x2 LCD display.  The LiquidCrystal
- library works with all LCD displays that are compatible with the
- Hitachi HD44780 driver. There are many of them out there, and you
- can usually tell them by the 16-pin interface.
-
- This sketch prints "Hello World!" to the LCD
- and shows the time.
-
-  The circuit:
+  The LCD circuit:
  * LCD RS pin to digital pin 12
  * LCD Enable pin to digital pin 11
  * LCD D4 pin to digital pin 5
@@ -23,26 +16,15 @@
  * ends to +5V and ground
  * wiper to LCD VO pin (pin 3)
 
- Library originally added 18 Apr 2008
- by David A. Mellis
- library modified 5 Jul 2009
- by Limor Fried (http://www.ladyada.net)
- example added 9 Jul 2009
- by Tom Igoe
- modified 22 Nov 2010
- by Tom Igoe
- modified 7 Nov 2016
- by Arturo Guadalupi
+A HC-SR04 ultrasonic sensor is placed on pins 6 & 7
 
- This example code is in the public domain.
-
- https://docs.arduino.cc/learn/electronics/lcd-displays
 
 */
 
 // include the library code:
 #include <Arduino.h>
 #include <LiquidCrystal.h>
+#include "KickSort.h"
 
 // initialize the library by associating any needed LCD interface pin
 // with the arduino pin number it is connected to
@@ -53,30 +35,72 @@ const int ECHO_PIN = 7;
 const int MAX_DEPTH_CM = 300;
 const int MEASURE_INTERVAL = 10000; // 10 seconds
 const float SPEED_OF_SOUND_CM_US = 0.0343;
+const int numMeasurements = 10; // Number of measurements within 1 second
+float distances[numMeasurements];
 void initSensor();
-float measureDistance();
+float getDistance();
+float getStdDev(float arr[], int size);
+float getMedian(float arr[], int size);
+void debugResults(float distances[], float median, float deviation);
+
 void setup()
 {
   initSensor();
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
   // Print a message to the LCD.
-  lcd.print("hello, world!");
+  Serial.begin(115200);
 }
+float medianDistance = 0;
 
+float stdDevDistance = 1;
 void loop()
 {
+  lcd.blink();
+  stdDevDistance = 2;
+  // keep mearuring until we get a stable result.
+  while (stdDevDistance > 1)
+  {
+    for (int i = 0; i < numMeasurements; i++)
+    {
+      distances[i] = getDistance();
+      delay(100); // Delay 100ms between measurements to span 1 second (10 * 100ms = 1000ms = 1 second)
+    }
 
-  float distance = measureDistance();
+    medianDistance = getMedian(distances, numMeasurements);
+    stdDevDistance = getStdDev(distances, numMeasurements);
+  }
 
-  float depth = MAX_DEPTH_CM - distance;
+  debugResults(distances, medianDistance, stdDevDistance);
 
-  // set the cursor to column 0, line 1
-  // (note: line 1 is the second row, since counting begins with 0):
+  float depth = MAX_DEPTH_CM - medianDistance;
+
+  lcd.setCursor(0, 0);
+  lcd.print("Dist:");
+  lcd.print(medianDistance);
+
   lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  lcd.print("CM: ");
-  lcd.print(distance);
+  lcd.print("SDev:");
+  lcd.print(stdDevDistance);
+  lcd.noBlink();
+  delay(10000);
+}
+
+void debugResults(float distances[], float median, float deviation)
+{
+  Serial.print("Results:");
+
+  for (int i = 0; i < numMeasurements; i++)
+  {
+    Serial.print(" ");
+    Serial.println(distances[i]);
+  }
+
+  Serial.print("Median: ");
+  Serial.println(median);
+  Serial.print("Std Deviation: ");
+  Serial.println(deviation);
+  Serial.println("");
 }
 
 void initSensor()
@@ -85,7 +109,7 @@ void initSensor()
   pinMode(ECHO_PIN, INPUT);
 }
 
-float measureDistance()
+float getDistance()
 {
   digitalWrite(TRIGGER_PIN, LOW);
   delayMicroseconds(2);
@@ -96,4 +120,42 @@ float measureDistance()
   long duration = pulseIn(ECHO_PIN, HIGH);
   float distanceCm = duration * SPEED_OF_SOUND_CM_US / 2.0;
   return distanceCm;
+}
+
+float getMedian(float arr[], int size)
+{
+  // Sort the array
+  KickSort<float>::quickSort(arr, numMeasurements);
+
+  // Calculate the median
+  if (size % 2 == 0)
+  {
+    return (arr[size / 2 - 1] + arr[size / 2]) / 2;
+  }
+  else
+  {
+    return arr[size / 2];
+  }
+}
+float getStdDev(float arr[], int size)
+{
+  // First, calculate the mean
+  float mean = 0;
+  for (int i = 0; i < size; i++)
+  {
+    mean += arr[i];
+  }
+  mean /= size;
+
+  // Then, calculate the sum of squared differences from the mean
+  float sumSqDiff = 0;
+  for (int i = 0; i < size; i++)
+  {
+    sumSqDiff += pow(arr[i] - mean, 2);
+  }
+
+  // Calculate the standard deviation
+  float stdDev = sqrt(sumSqDiff / size);
+
+  return stdDev;
 }
